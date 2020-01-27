@@ -1,0 +1,60 @@
+ID: com.cf.app
+version: 0.0.1-SNAPSHOT
+
+resources:
+  - name: logging
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: application-logs
+      service-plan: lite
+  - name: my-xsuaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: space
+      path: xs-security.json
+      config:
+        xsappname: "com-cf-app-${my-subdomain}"
+
+modules:
+  - name: backend
+    type: application
+    path: application/target/com.cf.app-application.war
+    parameters:
+      routes:
+        - route: "https://${app-name}-${space}.${default-domain}"
+      memory: 1024M
+      health-check-timeout: 300
+      buildpacks:
+        - sap_java_buildpack
+    properties:
+      TARGET_RUNTIME: tomee7
+      SET_LOGGING_LEVEL: '{ROOT: INFO, com.sap.cloud.sdk: INFO}'
+      JBP_CONFIG_SAPJVM_MEMORY_SIZES: 'metaspace:128m..'
+    requires:
+      - name: logging
+    provides:
+      - name: backend-route
+        properties:
+          url: ${routes/0/route}
+  - name: approuter
+    type: application
+    path: approuter
+    parameters:
+      routes:
+        - route: approuter-${my-subdomain}.${default-domain}
+      memory: 128M
+      buildpacks:
+        - nodejs_buildpack
+    properties:
+      TENANT_HOST_PATTERN: 'approuter-(.*).${default-domain}'
+      destinations: '[{"name":"app-destination", "url": "~{backend-route/url}" , "forwardAuthToken": true}]'
+    requires:
+      - name: backend-route
+      - name: my-xsuaa
+      - name: logging
+
+_schema-version: 3.3.0
+parameters:
+  enable-parallel-deployments: true
+  my-subdomain: "sap-deploy-service"
